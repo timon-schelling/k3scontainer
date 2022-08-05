@@ -1,4 +1,3 @@
-use std::process::exit;
 use std::str;
 
 use futures::StreamExt;
