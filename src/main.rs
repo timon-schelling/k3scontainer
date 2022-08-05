@@ -1,4 +1,3 @@
-use std::process::exit;
 use std::str;
 
 use futures::StreamExt;
@@ -25,7 +24,7 @@ pub fn print_chunk(chunk: TtyChunk) {
         TtyChunk::StdErr(bytes) => {
             eprintln!("Stdout: {}", str::from_utf8(&bytes).unwrap_or_default())
         }
-        TtyChunk::StdIn(_) => unreachable!(),
+        TtyChunk::StdIn(_) => unreachable!()
     }
 }
 
@@ -35,19 +34,22 @@ async fn main() {
 
     let images = docker.images();
 
-    let mut stream = images.pull(
+    let mut pull_result_stream = images.pull(
         &PullOpts::builder()
             .image("docker.io/library/ubuntu:latest")
             .build(),
     );
-    while let Some(pull_result) = stream.next().await {
+    while let Some(pull_result) = pull_result_stream.next().await {
         match pull_result {
-            Ok(_) => {},
-            Err(e) => eprintln!("{}", e),
+            Ok(_) => {}
+            Err(e) => eprintln!("Error: {}", e),
         }
     }
 
-    let opts = ContainerCreateOpts::builder("docker.io/library/ubuntu:latest").cmd(vec!["echo", "test"]).build();
+    let opts = ContainerCreateOpts::builder("docker.io/library/ubuntu:latest")
+        .auto_remove(true)
+        .cmd(vec!["echo", "test"])
+        .build();
 
     let container = match docker.containers().create(&opts).await {
         Ok(container) => container,
@@ -58,19 +60,18 @@ async fn main() {
     };
 
     match container.start().await {
+        Ok(_) => {}
         Err(e) => {
             eprintln!("Error: {}", e);
             return;
         }
-        _ => {}
     };
 }
-
 
 // use clap::{arg, Command};
 // use std::ffi::OsString;
 // use std::path::PathBuf;
-//
+
 // fn cli() -> Command<'static> {
 //     Command::new("k3scontainer")
 //         .about("run k3s cluster in a container")
@@ -107,7 +108,6 @@ async fn main() {
 // fn push_args() -> Vec<clap::Arg<'static>> {
 //     vec![arg!(-m --message <MESSAGE>).required(false)]
 // }
-
 
 // pub fn run(){
 //     let matches = cli().get_matches();
