@@ -130,6 +130,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-concat"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82cc4ae166af6b369f8985fb412b0764edcd257058fa59354dbeb63915767714"
+
+[[package]]
 name = "containers-api"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -234,9 +240,7 @@ name = "docker-api-stubs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "733cb176deec8914bf3ca1c3ee9256fdd227f9c7060cd34b9a958277413ff4fa"
-dependencies = [
- "chrono",
- "serde",
+dependencies = [static
  "serde_json",
  "serde_with",
 ]
@@ -538,6 +542,7 @@ name = "k3scontainer"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "const-concat",
  "docker-api",
  "futures",
  "serde_json",
