@@ -7,7 +7,7 @@ use std::process::Command;
 #[derive(Debug)]
 pub enum ExecError {
     NoneZeroExitCode {
-        exitCode: i32,
+        exit_code: i32,
         stdout: String,
         stderr: String,
     },
@@ -20,10 +20,10 @@ impl fmt::Display for ExecError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ExecError::NoneZeroExitCode {
-                exitCode,
+                exit_code,
                 stdout: _,
                 stderr: _,
-            } => write!(f, "NoneZeroExitCode Error: {exitCode}"),
+            } => write!(f, "NoneZeroExitCode Error: {exit_code}"),
             ExecError::IoError(e) => e.fmt(f),
         }
     }
@@ -37,7 +37,7 @@ fn exec(cmd: &str) -> Result<String, ExecError> {
         Ok(out) => {
             if !out.status.success() {
                 return Err(ExecError::NoneZeroExitCode {
-                    exitCode: out.status.code().unwrap_or(1),
+                    exit_code: out.status.code().unwrap_or(1),
                     stdout: String::from_utf8_lossy(&out.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&out.stderr).to_string(),
                 });
