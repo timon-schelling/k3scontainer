@@ -2,6 +2,7 @@ pub mod host {
     use const_format::concatcp;
 
     pub const STATE_DIR: &str = ".k3scontainer";
+    pub const CONTAINER_NAME_PREFIX: &str = "k3scontainer-";
     pub const CLUSTER_NAME_FILE: &str = concatcp!(STATE_DIR,"/name");
     pub const CONTAINER_BUILD_FILE: &str = concatcp!(STATE_DIR,"/Dockerfile");
     pub const DATA_DIR: &str = concatcp!(STATE_DIR,"/data");

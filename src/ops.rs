@@ -1,3 +1,7 @@
+use futures::future::ok;
+use tokio::time::error;
+
+use crate::cli::cmd;
 use crate::consts;
 use std::fmt;
 use std::fs::{create_dir_all, File};
@@ -58,6 +62,38 @@ fn read(path: &str) -> Result<String, io::Error> {
     }
 }
 
+fn generate_cluster_name() -> String {
+    let charset = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let rand = random_string::generate(16, charset);
+    format!("{}{}", consts::host::CONTAINER_NAME_PREFIX, rand)
+}
+
+fn obtain_and_save_cluster_name() -> Result<String, io::Error> {
+    let mut file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        .append(false)
+        .open(consts::host::CLUSTER_NAME_FILE)?;
+    
+    let mut name = String::new();
+    file.read_to_string(&mut name)?;
+
+    name = name.lines().next().unwrap_or("").to_string();
+
+    if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+        name = generate_cluster_name();
+        file.rewind()?;
+        file.set_len(0)?;
+        file.write(format!("{}\n", name).as_bytes())?;
+        file.flush()?;
+    }
+
+    file.sync_data()?;
+
+    Ok(name)
+}
+
 fn exists(path: &str) -> bool {
     Path::new(path).exists()
 }
@@ -66,16 +102,46 @@ fn create_dir(path: &str) -> bool {
     create_dir_all(path).is_ok()
 }
 
+fn report_dependencies() {
+    todo!()
+}
+
 pub fn provision() {
     if !create_dir(consts::host::STATE_DIR) {
         println!("unable to create {}", consts::host::STATE_DIR);
         return;
     }
-    let cluster_exists = !exists(consts::host::CLUSTER_NAME_FILE);
-    let cluster_name = match read(consts::host::CLUSTER_NAME_FILE) {
-        Ok(str) => str.trim_end_matches("\n").to_string(),
-        Err(_) => todo!(),
+
+    let cluster_name = match obtain_and_save_cluster_name() {
+        Ok(name) => name,
+        Err(e) => {
+            println!("unable to obtaine cluster name due to: {}", e);
+            return;
+        },
     };
+
+    let cmd = format!("docker ps -q -f name={}", cluster_name);
+    let container_exists = match exec(&cmd) {
+        Ok(s) => !s.trim().is_empty(),
+        Err(e) => {
+            println!("unable to execute \"{}\": {}", cmd, e);
+            report_dependencies();
+            return;
+        },
+    };
+
+    let cmd = format!("docker ps -q -f name={} -f status=running", cluster_name);
+    let container_running = match exec(&cmd) {
+        Ok(s) => !s.trim().is_empty(),
+        Err(e) => {
+            println!("unable to execute \"{}\": {}", cmd, e);
+            report_dependencies();
+            return;
+        },
+    };
+    
+    println!("container_exists: {container_exists}, container_running: {container_running}");
+
     println!("{}", exec("docker ps -a").unwrap());
 }
 
