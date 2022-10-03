@@ -1,5 +1,6 @@
+use crate::consts;
 use std::fmt;
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::{self, prelude::*};
 use std::path::Path;
 use std::process::Command;
@@ -57,8 +58,25 @@ fn read(path: &str) -> Result<String, io::Error> {
     }
 }
 
+fn exists(path: &str) -> bool {
+    Path::new(path).exists()
+}
+
+fn create_dir(path: &str) -> bool {
+    create_dir_all(path).is_ok()
+}
+
 pub fn provision() {
-    println!("{}", exec("docker ps -a").unwrap())
+    if !create_dir(consts::host::STATE_DIR) {
+        println!("unable to create {}", consts::host::STATE_DIR);
+        return;
+    }
+    let cluster_exists = !exists(consts::host::CLUSTER_NAME_FILE);
+    let cluster_name = match read(consts::host::CLUSTER_NAME_FILE) {
+        Ok(str) => str.trim_end_matches("\n").to_string(),
+        Err(_) => todo!(),
+    };
+    println!("{}", exec("docker ps -a").unwrap());
 }
 
 pub fn remove() {}
