@@ -149,7 +149,7 @@ fn obtain_and_save_build_input() -> Result<String, io::Error> {
         .unwrap_or("")
         .to_string();
 
-    if content.is_empty() || !content.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+    if content.is_empty() {
         content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
         file.rewind()?;
         file.set_len(0)?;
