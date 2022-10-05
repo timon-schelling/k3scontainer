@@ -37,7 +37,7 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
     let args = iter.map(String::from).collect::<Vec<String>>();
 
     let prosses = if !input.is_empty() {
-        let prosses = match Command::new(cmd)
+        let mut prosses = match Command::new(cmd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -153,7 +153,7 @@ fn obtain_and_save_build_input() -> Result<String, io::Error> {
         content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
         file.rewind()?;
         file.set_len(0)?;
-        file.write(format!("{}\n", content).as_bytes())?;
+        file.write(content.as_bytes())?;
         file.flush()?;
     }
 
