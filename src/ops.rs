@@ -1,13 +1,10 @@
-use futures::future::ok;
-use tokio::time::error;
+use clap::command;
 
-use crate::cli::cmd;
 use crate::consts;
 use std::fmt;
 use std::fs::{create_dir_all, File};
 use std::io::{self, prelude::*};
-use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Debug)]
 pub enum ExecError {
@@ -34,11 +31,42 @@ impl fmt::Display for ExecError {
     }
 }
 
-fn exec(cmd: &str) -> Result<String, ExecError> {
+fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
     let mut iter = cmd.split_whitespace();
     let bin = iter.next().unwrap().to_string();
     let args = iter.map(String::from).collect::<Vec<String>>();
-    match Command::new(bin).args(args).output() {
+
+    let prosses = if !input.is_empty() {
+        let prosses = match Command::new(cmd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(r) => r,
+            Err(e) => return Err(ExecError::IoError(e)),
+        };
+
+        let stdin = prosses
+            .stdin
+            .as_mut()
+            .expect("stdin was provided for process");
+
+        match stdin.write_all(input.as_bytes()) {
+            Ok(r) => r,
+            Err(e) => return Err(ExecError::IoError(e)),
+        };
+
+        drop(stdin);
+
+        prosses
+    } else {
+        match Command::new(bin).args(args).spawn() {
+            Ok(r) => r,
+            Err(e) => return Err(ExecError::IoError(e)),
+        }
+    };
+
+    match prosses.wait_with_output() {
         Ok(out) => {
             if !out.status.success() {
                 return Err(ExecError::NoneZeroExitCode {
@@ -53,13 +81,23 @@ fn exec(cmd: &str) -> Result<String, ExecError> {
     }
 }
 
-fn read(path: &str) -> Result<String, io::Error> {
-    let mut f = File::open(Path::new(&path))?;
-    let mut s = String::new();
-    match f.read_to_string(&mut s) {
-        Ok(_) => Ok(s),
-        Err(e) => Err(e),
+fn exec_no_input(cmd: &str) -> Result<String, ExecError> {
+    exec(cmd, "")
+}
+
+fn exec_report_error(cmd: &str, input: &str) -> Result<String, ExecError> {
+    match exec(cmd, input) {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            println!("unable to execute \"{}\": {}", cmd, e);
+            report_dependencies();
+            Err(e)
+        }
     }
+}
+
+fn exec_no_input_report_error(cmd: &str) -> Result<String, ExecError> {
+    exec_report_error(cmd, "")
 }
 
 fn generate_cluster_name() -> String {
@@ -75,7 +113,7 @@ fn obtain_and_save_cluster_name() -> Result<String, io::Error> {
         .write(true)
         .append(false)
         .open(consts::host::CLUSTER_NAME_FILE)?;
-    
+
     let mut name = String::new();
     file.read_to_string(&mut name)?;
 
@@ -94,8 +132,34 @@ fn obtain_and_save_cluster_name() -> Result<String, io::Error> {
     Ok(name)
 }
 
-fn exists(path: &str) -> bool {
-    Path::new(path).exists()
+fn obtain_and_save_build_input() -> Result<String, io::Error> {
+    let mut file = File::options()
+        .create(true)
+        .read(true)
+        .write(true)
+        .append(false)
+        .open(consts::host::CONTAINER_BUILD_FILE)?;
+
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+
+    content = content
+        .lines()
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    if content.is_empty() || !content.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+        content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
+        file.rewind()?;
+        file.set_len(0)?;
+        file.write(format!("{}\n", content).as_bytes())?;
+        file.flush()?;
+    }
+
+    file.sync_data()?;
+
+    Ok(content)
 }
 
 fn create_dir(path: &str) -> bool {
@@ -117,32 +181,37 @@ pub fn provision() {
         Err(e) => {
             println!("unable to obtaine cluster name due to: {}", e);
             return;
-        },
+        }
     };
 
     let cmd = format!("docker ps -q -f name={}", cluster_name);
-    let container_exists = match exec(&cmd) {
+    let container_exists = match exec_no_input_report_error(&cmd) {
         Ok(s) => !s.trim().is_empty(),
-        Err(e) => {
-            println!("unable to execute \"{}\": {}", cmd, e);
-            report_dependencies();
-            return;
-        },
+        Err(_) => return,
     };
 
     let cmd = format!("docker ps -q -f name={} -f status=running", cluster_name);
-    let container_running = match exec(&cmd) {
+    let container_running = match exec_no_input_report_error(&cmd) {
         Ok(s) => !s.trim().is_empty(),
+        Err(_) => return,
+    };
+
+    let cmd = format!("docker build -o plain -t {} -", cluster_name);
+    let input = match obtain_and_save_build_input() {
+        Ok(r) => r,
         Err(e) => {
-            println!("unable to execute \"{}\": {}", cmd, e);
-            report_dependencies();
+            println!("unable to obtaine build input due to: {}", e);
             return;
         },
     };
-    
+    let image_build = match exec_report_error(&cmd, &input) {
+        Ok(s) => true,
+        Err(_) => return,
+    };
+
     println!("container_exists: {container_exists}, container_running: {container_running}");
 
-    println!("{}", exec("docker ps -a").unwrap());
+    println!("{}", exec_no_input("docker ps -a").unwrap());
 }
 
 pub fn remove() {}
