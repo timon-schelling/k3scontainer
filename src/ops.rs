@@ -1,5 +1,3 @@
-use clap::command;
-
 use crate::consts;
 use std::fmt;
 use std::fs::{create_dir_all, File};
