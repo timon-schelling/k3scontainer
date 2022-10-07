@@ -35,7 +35,8 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
     let args = iter.map(String::from).collect::<Vec<String>>();
 
     let prosses = if !input.is_empty() {
-        let mut prosses = match Command::new(bin).args(args)
+        let mut prosses = match Command::new(bin)
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -58,7 +59,7 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
 
         prosses
     } else {
-        match Command::new(bin).args(args).spawn() {
+        match Command::new(bin).args(args).stdout(Stdio::piped()).spawn() {
             Ok(r) => r,
             Err(e) => return Err(ExecError::IoError(e)),
         }
@@ -66,6 +67,9 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
 
     match prosses.wait_with_output() {
         Ok(out) => {
+            //dbg!(cmd);
+            //dbg!(out.clone());
+
             if !out.status.success() {
                 return Err(ExecError::NoneZeroExitCode {
                     exit_code: out.status.code().unwrap_or(1),
@@ -141,11 +145,7 @@ fn obtain_and_save_build_input() -> Result<String, io::Error> {
     let mut content = String::new();
     file.read_to_string(&mut content)?;
 
-    content = content
-        .lines()
-        .next()
-        .unwrap_or("")
-        .to_string();
+    content = content.lines().next().unwrap_or("").to_string();
 
     if content.is_empty() {
         content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
@@ -191,7 +191,7 @@ pub fn provision() {
     if container_running {
         return;
     }
-    
+
     let cmd = format!("docker ps -a -q -f name={}", cluster_name);
     let container_exists = match exec_no_input_report_error(&cmd) {
         Ok(s) => !s.trim().is_empty(),
@@ -199,13 +199,16 @@ pub fn provision() {
     };
 
     if container_exists {
-        let cmd = format!("docker inspect -f '{{.State.Status}}' {}", cluster_name);
+        let cmd = format!("docker inspect -f '{{{{.State.Status}}}}' {}", cluster_name);
         let container_state = match exec_no_input_report_error(&cmd) {
-            Ok(s) => s,
+            Ok(s) => s.trim_end().replace("'", ""),
             Err(_) => return,
         };
 
-        println!("cluster container exits but is not in runnig state: {}", container_state);
+        println!(
+            "cluster container exits but is not in runnig state: {}",
+            container_state
+        );
         return;
     }
 
@@ -215,10 +218,10 @@ pub fn provision() {
         Err(e) => {
             println!("unable to obtaine build input due to: {}", e);
             return;
-        },
+        }
     };
     match exec_report_error(&cmd, &input) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_) => return,
     };
 
