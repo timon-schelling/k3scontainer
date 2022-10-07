@@ -37,7 +37,7 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
     let args = iter.map(String::from).collect::<Vec<String>>();
 
     let prosses = if !input.is_empty() {
-        let mut prosses = match Command::new(cmd)
+        let mut prosses = match Command::new(bin).args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -184,17 +184,32 @@ pub fn provision() {
         }
     };
 
-    let cmd = format!("docker ps -q -f name={}", cluster_name);
+    let cmd = format!("docker ps -a -q -f name={} -f status=running", cluster_name);
+    let container_running = match exec_no_input_report_error(&cmd) {
+        Ok(s) => !s.trim().is_empty(),
+        Err(_) => return,
+    };
+
+    if container_running {
+        return;
+    }
+    
+    let cmd = format!("docker ps -a -q -f name={}", cluster_name);
     let container_exists = match exec_no_input_report_error(&cmd) {
         Ok(s) => !s.trim().is_empty(),
         Err(_) => return,
     };
 
-    let cmd = format!("docker ps -q -f name={} -f status=running", cluster_name);
-    let container_running = match exec_no_input_report_error(&cmd) {
-        Ok(s) => !s.trim().is_empty(),
-        Err(_) => return,
-    };
+    if container_exists {
+        let cmd = format!("docker inspect -f '{{.State.Status}}' {}", cluster_name);
+        let container_state = match exec_no_input_report_error(&cmd) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        println!("cluster container exits but is not in runnig state: {}", container_state);
+        return;
+    }
 
     let cmd = format!("docker build -o plain -t {} -", cluster_name);
     let input = match obtain_and_save_build_input() {
@@ -204,8 +219,8 @@ pub fn provision() {
             return;
         },
     };
-    let image_build = match exec_report_error(&cmd, &input) {
-        Ok(s) => true,
+    match exec_report_error(&cmd, &input) {
+        Ok(_) => {},
         Err(_) => return,
     };
 
