@@ -39,16 +39,14 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
         {
             Ok(r) => r,
             Err(e) => return Err(ExecError::IoError(e)),
         };
 
-        let stdin = prosses
-            .stdin
-            .as_mut()
-            .expect("stdin was provided for process");
+        let stdin = prosses.stdin.as_mut().unwrap();
 
         match stdin.write_all(input.as_bytes()) {
             Ok(r) => r,
@@ -59,7 +57,12 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
 
         prosses
     } else {
-        match Command::new(bin).args(args).stdout(Stdio::piped()).spawn() {
+        match Command::new(bin)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
             Ok(r) => r,
             Err(e) => return Err(ExecError::IoError(e)),
         }
@@ -67,9 +70,6 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
 
     match prosses.wait_with_output() {
         Ok(out) => {
-            //dbg!(cmd);
-            //dbg!(out.clone());
-
             if !out.status.success() {
                 return Err(ExecError::NoneZeroExitCode {
                     exit_code: out.status.code().unwrap_or(1),
@@ -92,6 +92,18 @@ fn exec_report_error(cmd: &str, input: &str) -> Result<String, ExecError> {
         Ok(r) => Ok(r),
         Err(e) => {
             println!("unable to execute \"{}\": {}", cmd, e);
+            if let ExecError::NoneZeroExitCode {
+                exit_code: _,
+                stdout,
+                stderr,
+            } = &e
+            {
+                println!();
+                println!("{}", stdout);
+                println!();
+                println!("{}", stderr);
+            }
+            println!();
             report_dependencies();
             Err(e)
         }
@@ -144,8 +156,6 @@ fn obtain_and_save_build_input() -> Result<String, io::Error> {
 
     let mut content = String::new();
     file.read_to_string(&mut content)?;
-
-    content = content.lines().next().unwrap_or("").to_string();
 
     if content.is_empty() {
         content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
@@ -225,9 +235,12 @@ pub fn provision() {
         Err(_) => return,
     };
 
-    println!("container_exists: {container_exists}, container_running: {container_running}");
+    let cmd = format!("docker volume create {}-docker-dir-volume", cluster_name);
+    match exec_no_input_report_error(&cmd) {
+        Ok(_) => {},
+        Err(_) => return,
+    };
 
-    println!("{}", exec_no_input("docker ps -a").unwrap());
 }
 
 pub fn remove() {}

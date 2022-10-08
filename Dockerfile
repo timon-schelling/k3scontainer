@@ -13,7 +13,7 @@ RUN curl -s https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 
 
 RUN curl -s https://fluxcd.io/install.sh | sudo bash
 
-COPY k3scontainer /k3scontainer/k3scontainer
-RUN chmod +x /k3scontainer/k3scontainer
-WORKDIR /k3scontainer
-ENTRYPOINT ["./k3scontainer", "container", "entrypoint"]
+# COPY k3scontainer /k3scontainer/k3scontainer
+# RUN chmod +x /k3scontainer/k3scontainer
+# WORKDIR /k3scontainer
+# ENTRYPOINT ["./k3scontainer", "container", "entrypoint"]
