@@ -6,6 +6,6 @@ pub struct Cmd;
 
 impl Command for Cmd {
     fn main(&self) {
-        todo!()
+        crate::ops::remove();
     }
 }

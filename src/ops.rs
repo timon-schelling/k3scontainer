@@ -120,18 +120,38 @@ fn generate_cluster_name() -> String {
     format!("{}{}", consts::host::CONTAINER_NAME_PREFIX, rand)
 }
 
-fn obtain_and_save_cluster_name() -> Result<String, io::Error> {
-    let mut file = File::options()
+fn open_cluster_name_file() -> Result<File, io::Error> {
+    let file = File::options()
         .create(true)
         .read(true)
         .write(true)
         .append(false)
         .open(consts::host::CLUSTER_NAME_FILE)?;
+    
+    Ok(file)
+}
 
+fn read_cluster_name_from(file: &mut File) -> Result<String, io::Error> {
     let mut name = String::new();
     file.read_to_string(&mut name)?;
-
     name = name.lines().next().unwrap_or("").to_string();
+    Ok(name)
+}
+
+fn obtain_cluster_name() -> Result<Option<String>, io::Error> {
+    let mut file = open_cluster_name_file()?;
+    let name = read_cluster_name_from(&mut file)?;
+
+    if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+        return Ok(None)
+    }
+
+    Ok(Some(name))
+}
+
+fn obtain_or_generate_and_save_cluster_name() -> Result<String, io::Error> {
+    let mut file = open_cluster_name_file()?;
+    let mut name = read_cluster_name_from(&mut file)?;
 
     if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
         name = generate_cluster_name();
@@ -139,9 +159,8 @@ fn obtain_and_save_cluster_name() -> Result<String, io::Error> {
         file.set_len(0)?;
         file.write(format!("{}\n", name).as_bytes())?;
         file.flush()?;
+        file.sync_data()?;
     }
-
-    file.sync_data()?;
 
     Ok(name)
 }
@@ -184,10 +203,10 @@ pub fn provision() {
         return;
     }
 
-    let cluster_name = match obtain_and_save_cluster_name() {
+    let cluster_name = match obtain_or_generate_and_save_cluster_name() {
         Ok(name) => name,
         Err(e) => {
-            println!("unable to obtaine cluster name due to: {}", e);
+            println!("unable to obtaine or generate and save cluster name due to: {}", e);
             return;
         }
     };
@@ -199,6 +218,7 @@ pub fn provision() {
     };
 
     if container_running {
+        println!("cluster is already up");
         return;
     }
 
@@ -237,13 +257,64 @@ pub fn provision() {
 
     let cmd = format!("docker volume create {}-docker-dir-volume", cluster_name);
     match exec_no_input_report_error(&cmd) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(_) => return,
     };
 
+    let pwd_buf = std::env::current_dir().unwrap();
+    let pwd = pwd_buf.to_str().unwrap();
+    let cmd = &[
+        "docker run",
+        format!("--name {}", cluster_name).as_str(),
+        "--privileged",
+        "--detach",
+        "--restart unless-stopped",
+        format!("-v {}:/k3scontainer/pwd:ro", pwd).as_str(),
+        format!("-v {}-docker-dir-volume:/var/lib/docker", cluster_name).as_str(),
+        format!(
+            "-v {}/{}:{}",
+            pwd,
+            consts::host::DATA_DIR,
+            consts::container::DATA_DIR
+        )
+        .as_str(),
+        &cluster_name,
+    ]
+    .join(" ");
+    match exec_no_input_report_error(&cmd) {
+        Ok(_) => {}
+        Err(_) => return,
+    };
 }
 
-pub fn remove() {}
+pub fn remove() {
+    let cluster_name = match obtain_cluster_name() {
+        Ok(Some(name)) => name,
+        Ok(None) => return,
+        Err(e) => {
+            println!("unable to obtaine cluster name due to: {}", e);
+            return;
+        }
+    };
+
+    let cmd = format!("docker rm --force {}", cluster_name);
+    match exec_no_input_report_error(&cmd) {
+        Ok(_) => {}
+        Err(_) => return,
+    };
+
+    let cmd = format!("docker volume rm {}-docker-dir-volume", cluster_name);
+    match exec_no_input_report_error(&cmd) {
+        Ok(_) => {}
+        Err(_) => return,
+    };
+
+    let cmd = format!("docker image rm {}", cluster_name);
+    match exec_no_input_report_error(&cmd) {
+        Ok(_) => {}
+        Err(_) => return,
+    };
+}
 
 pub fn logs() {}
 
