@@ -197,6 +197,28 @@ fn report_dependencies() {
     todo!()
 }
 
+
+#[derive(Debug)]
+pub enum Error {
+    IoError,
+}
+
+impl std::error::Error for Error {}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Exec::NoneZeroExitCode {
+                exit_code,
+                stdout: _,
+                stderr: _,
+            } => write!(f, "NoneZeroExitCode Error: {exit_code}"),
+            ExecError::IoError(e) => e.fmt(f),
+        }
+    }
+}
+
+
 pub fn provision() {
     if !create_dir(consts::host::STATE_DIR) {
         println!("unable to create {}", consts::host::STATE_DIR);
@@ -329,3 +351,7 @@ pub fn run() {}
 pub fn shell() {}
 
 pub fn kubectl() {}
+
+pub fn container_entrypoint() {}
+
+pub fn container_refresh() {}
