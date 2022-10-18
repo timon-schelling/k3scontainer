@@ -275,7 +275,7 @@ pub fn provision() -> Result<(), Error> {
 
     let cmd = format!("docker ps -a -q -f name={}", cluster_name);
     let out = exec_no_input(&cmd)?;
-    let container_exists = out.trim().is_empty();
+    let container_exists = !out.trim().is_empty();
 
     if container_exists {
         let cmd = format!("docker inspect -f '{{{{.State.Status}}}}' {}", cluster_name);
@@ -292,7 +292,8 @@ pub fn provision() -> Result<(), Error> {
     exec_no_input(&cmd)?;
 
     
-    let pwd = std::env::current_dir().unwrap().to_str().unwrap();
+    let pwd = std::env::current_dir().unwrap();
+    let pwd = pwd.to_str().unwrap();
     let cmd = &[
         "docker run",
         format!("--name {}", cluster_name).as_str(),
