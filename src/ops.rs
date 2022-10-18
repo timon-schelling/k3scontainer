@@ -127,7 +127,7 @@ fn open_cluster_name_file() -> Result<File, io::Error> {
         .write(true)
         .append(false)
         .open(consts::host::CLUSTER_NAME_FILE)?;
-    
+
     Ok(file)
 }
 
@@ -143,50 +143,62 @@ fn obtain_cluster_name() -> Result<Option<String>, io::Error> {
     let name = read_cluster_name_from(&mut file)?;
 
     if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
-        return Ok(None)
+        return Ok(None);
     }
 
     Ok(Some(name))
 }
 
-fn obtain_or_generate_and_save_cluster_name() -> Result<String, io::Error> {
-    let mut file = open_cluster_name_file()?;
-    let mut name = read_cluster_name_from(&mut file)?;
+fn obtain_or_generate_and_save_cluster_name() -> Result<String, Error> {
+    fn inner() -> Result<String, io::Error> {
+        let mut file = open_cluster_name_file()?;
+        let mut name = read_cluster_name_from(&mut file)?;
 
-    if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
-        name = generate_cluster_name();
-        file.rewind()?;
-        file.set_len(0)?;
-        file.write(format!("{}\n", name).as_bytes())?;
-        file.flush()?;
-        file.sync_data()?;
+        if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+            name = generate_cluster_name();
+            file.rewind()?;
+            file.set_len(0)?;
+            file.write(format!("{}\n", name).as_bytes())?;
+            file.flush()?;
+            file.sync_data()?;
+        }
+
+        Ok(name)
     }
-
-    Ok(name)
+    match inner() {
+        Ok(name) => Ok(name),
+        Err(e) => Err(Error::UnableToObtaineOrGenerateAndSaveClusterNameError { cause: e }),
+    }
 }
 
 fn obtain_and_save_build_input() -> Result<String, io::Error> {
-    let mut file = File::options()
-        .create(true)
-        .read(true)
-        .write(true)
-        .append(false)
-        .open(consts::host::CONTAINER_BUILD_FILE)?;
+    fn inner() -> Result<String, io::Error> {
+        let mut file = File::options()
+            .create(true)
+            .read(true)
+            .write(true)
+            .append(false)
+            .open(consts::host::CONTAINER_BUILD_FILE)?;
 
-    let mut content = String::new();
-    file.read_to_string(&mut content)?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)?;
 
-    if content.is_empty() {
-        content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
-        file.rewind()?;
-        file.set_len(0)?;
-        file.write(content.as_bytes())?;
-        file.flush()?;
+        if content.is_empty() {
+            content = consts::host::CONTAINER_BUILD_FILE_CONTENT.to_string();
+            file.rewind()?;
+            file.set_len(0)?;
+            file.write(content.as_bytes())?;
+            file.flush()?;
+        }
+
+        file.sync_data()?;
+
+        Ok(content)
     }
-
-    file.sync_data()?;
-
-    Ok(content)
+    match inner() {
+        Ok(content) => Ok(content),
+        Err(_) => Err(Error::),
+    }
 }
 
 fn create_dir(path: &str) -> bool {
@@ -197,10 +209,10 @@ fn report_dependencies() {
     todo!()
 }
 
-
 #[derive(Debug)]
 pub enum Error {
-    IoError,
+    UnableToCreateDirIoError { path: &str, cause: io::Error },
+    UnableToObtaineOrGenerateAndSaveClusterNameError { cause: io::Error },
 }
 
 impl std::error::Error for Error {}
@@ -208,30 +220,25 @@ impl std::error::Error for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Exec::NoneZeroExitCode {
-                exit_code,
-                stdout: _,
-                stderr: _,
-            } => write!(f, "NoneZeroExitCode Error: {exit_code}"),
-            ExecError::IoError(e) => e.fmt(f),
+            _ => todo!(),
         }
     }
 }
 
-
-pub fn provision() {
-    if !create_dir(consts::host::STATE_DIR) {
-        println!("unable to create {}", consts::host::STATE_DIR);
-        return;
+fn create_dir(path: &str) -> Result<(), Error> {
+    match create_dir_all(path) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Error::UnableToCreateDirIoError{
+            path: path,
+            cause: e,
+        }),
     }
+}
 
-    let cluster_name = match obtain_or_generate_and_save_cluster_name() {
-        Ok(name) => name,
-        Err(e) => {
-            println!("unable to obtaine or generate and save cluster name due to: {}", e);
-            return;
-        }
-    };
+pub fn provision() -> Result<(), Error> {
+    create_dir(path)?;
+
+    let cluster_name = obtain_or_generate_and_save_cluster_name()?;
 
     let cmd = format!("docker ps -a -q -f name={} -f status=running", cluster_name);
     let container_running = match exec_no_input_report_error(&cmd) {
@@ -265,13 +272,7 @@ pub fn provision() {
     }
 
     let cmd = format!("docker build -o plain -t {} -", cluster_name);
-    let input = match obtain_and_save_build_input() {
-        Ok(r) => r,
-        Err(e) => {
-            println!("unable to obtaine build input due to: {}", e);
-            return;
-        }
-    };
+    let input = obtain_and_save_build_input()?;
     match exec_report_error(&cmd, &input) {
         Ok(_) => {}
         Err(_) => return,
