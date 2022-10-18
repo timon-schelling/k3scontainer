@@ -1,5 +1,5 @@
 use crate::consts;
-use std::fmt;
+use std::{fmt, result};
 use std::fs::{create_dir_all, File};
 use std::io::{self, prelude::*};
 use std::process::{Command, Stdio};
@@ -29,7 +29,7 @@ impl fmt::Display for ExecError {
     }
 }
 
-fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
+fn exec(cmd: &str, input: &str) -> Result<String, Error> {
     let mut iter = cmd.split_whitespace();
     let bin = iter.next().unwrap().to_string();
     let args = iter.map(String::from).collect::<Vec<String>>();
@@ -43,14 +43,24 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
             .spawn()
         {
             Ok(r) => r,
-            Err(e) => return Err(ExecError::IoError(e)),
+            Err(e) => {
+                return Err(Error::CommandIoError {
+                    cmd: cmd.to_string(),
+                    cause: e,
+                })
+            }
         };
 
         let stdin = prosses.stdin.as_mut().unwrap();
 
         match stdin.write_all(input.as_bytes()) {
             Ok(r) => r,
-            Err(e) => return Err(ExecError::IoError(e)),
+            Err(e) => {
+                return Err(Error::CommandIoError {
+                    cmd: cmd.to_string(),
+                    cause: e,
+                })
+            }
         };
 
         drop(stdin);
@@ -64,14 +74,20 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
             .spawn()
         {
             Ok(r) => r,
-            Err(e) => return Err(ExecError::IoError(e)),
+            Err(e) => {
+                return Err(Error::CommandIoError {
+                    cmd: cmd.to_string(),
+                    cause: e,
+                })
+            }
         }
     };
 
     match prosses.wait_with_output() {
         Ok(out) => {
             if !out.status.success() {
-                return Err(ExecError::NoneZeroExitCode {
+                return Err(Error::CommandReturnedNoneZeroExitCodeError {
+                    cmd: cmd.to_string(),
                     exit_code: out.status.code().unwrap_or(1),
                     stdout: String::from_utf8_lossy(&out.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&out.stderr).to_string(),
@@ -79,39 +95,17 @@ fn exec(cmd: &str, input: &str) -> Result<String, ExecError> {
             }
             Ok(String::from_utf8_lossy(&out.stdout).to_string())
         }
-        Err(e) => Err(ExecError::IoError(e)),
-    }
-}
-
-fn exec_no_input(cmd: &str) -> Result<String, ExecError> {
-    exec(cmd, "")
-}
-
-fn exec_report_error(cmd: &str, input: &str) -> Result<String, ExecError> {
-    match exec(cmd, input) {
-        Ok(r) => Ok(r),
         Err(e) => {
-            println!("unable to execute \"{}\": {}", cmd, e);
-            if let ExecError::NoneZeroExitCode {
-                exit_code: _,
-                stdout,
-                stderr,
-            } = &e
-            {
-                println!();
-                println!("{}", stdout);
-                println!();
-                println!("{}", stderr);
-            }
-            println!();
-            report_dependencies();
-            Err(e)
+            return Err(Error::CommandIoError {
+                cmd: cmd.to_string(),
+                cause: e,
+            })
         }
     }
 }
 
-fn exec_no_input_report_error(cmd: &str) -> Result<String, ExecError> {
-    exec_report_error(cmd, "")
+fn exec_no_input(cmd: &str) -> Result<String, Error> {
+    exec(cmd, "")
 }
 
 fn generate_cluster_name() -> String {
@@ -138,15 +132,22 @@ fn read_cluster_name_from(file: &mut File) -> Result<String, io::Error> {
     Ok(name)
 }
 
-fn obtain_cluster_name() -> Result<Option<String>, io::Error> {
-    let mut file = open_cluster_name_file()?;
-    let name = read_cluster_name_from(&mut file)?;
+fn obtain_cluster_name() -> Result<String, Error> {
+    fn inner() -> Result<Option<String>, io::Error> {
+        let mut file = open_cluster_name_file()?;
+        let name = read_cluster_name_from(&mut file)?;
 
-    if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
-        return Ok(None);
+        if name.is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(name))
     }
-
-    Ok(Some(name))
+    match inner() {
+        Ok(Some(name)) => Ok(name),
+        Ok(None) => Err(Error::ObtaineClusterNameEmptyError),
+        Err(e) => Err(Error::ObtaineClusterNameError { cause: e }),
+    }
 }
 
 fn obtain_or_generate_and_save_cluster_name() -> Result<String, Error> {
@@ -154,7 +155,7 @@ fn obtain_or_generate_and_save_cluster_name() -> Result<String, Error> {
         let mut file = open_cluster_name_file()?;
         let mut name = read_cluster_name_from(&mut file)?;
 
-        if name.is_empty() || !name.starts_with(consts::host::CONTAINER_NAME_PREFIX) {
+        if name.is_empty() {
             name = generate_cluster_name();
             file.rewind()?;
             file.set_len(0)?;
@@ -167,11 +168,11 @@ fn obtain_or_generate_and_save_cluster_name() -> Result<String, Error> {
     }
     match inner() {
         Ok(name) => Ok(name),
-        Err(e) => Err(Error::UnableToObtaineOrGenerateAndSaveClusterNameError { cause: e }),
+        Err(e) => Err(Error::ObtaineOrGenerateAndSaveClusterNameError { cause: e }),
     }
 }
 
-fn obtain_and_save_build_input() -> Result<String, io::Error> {
+fn obtain_and_save_build_input() -> Result<String, Error> {
     fn inner() -> Result<String, io::Error> {
         let mut file = File::options()
             .create(true)
@@ -197,12 +198,8 @@ fn obtain_and_save_build_input() -> Result<String, io::Error> {
     }
     match inner() {
         Ok(content) => Ok(content),
-        Err(_) => Err(Error::),
+        Err(e) => Err(Error::ObtaineBuildInputError { cause: e }),
     }
-}
-
-fn create_dir(path: &str) -> bool {
-    create_dir_all(path).is_ok()
 }
 
 fn report_dependencies() {
@@ -211,8 +208,34 @@ fn report_dependencies() {
 
 #[derive(Debug)]
 pub enum Error {
-    UnableToCreateDirIoError { path: &str, cause: io::Error },
-    UnableToObtaineOrGenerateAndSaveClusterNameError { cause: io::Error },
+    CreateDirError {
+        path: String,
+        cause: io::Error,
+    },
+    ObtaineClusterNameEmptyError,
+    ObtaineClusterNameError {
+        cause: io::Error,
+    },
+    ObtaineOrGenerateAndSaveClusterNameError {
+        cause: io::Error,
+    },
+    ObtaineBuildInputError {
+        cause: io::Error,
+    },
+    CommandIoError {
+        cmd: String,
+        cause: io::Error,
+    },
+    CommandReturnedNoneZeroExitCodeError {
+        cmd: String,
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    },
+    ClusterContaienrNotInRunningStateError {
+        state: String,
+    },
+
 }
 
 impl std::error::Error for Error {}
@@ -228,115 +251,78 @@ impl fmt::Display for Error {
 fn create_dir(path: &str) -> Result<(), Error> {
     match create_dir_all(path) {
         Ok(_) => Ok(()),
-        Err(e) => Err(Error::UnableToCreateDirIoError{
-            path: path,
+        Err(e) => Err(Error::CreateDirError {
+            path: path.to_string(),
             cause: e,
         }),
     }
 }
 
 pub fn provision() -> Result<(), Error> {
-    create_dir(path)?;
+    create_dir(consts::host::STATE_DIR)?;
 
     let cluster_name = obtain_or_generate_and_save_cluster_name()?;
 
     let cmd = format!("docker ps -a -q -f name={} -f status=running", cluster_name);
-    let container_running = match exec_no_input_report_error(&cmd) {
-        Ok(s) => !s.trim().is_empty(),
-        Err(_) => return,
-    };
+    let out = exec_no_input(&cmd)?;
+
+    let container_running = !out.trim().is_empty();
 
     if container_running {
         println!("cluster is already up");
-        return;
+        return Ok(());
     }
 
     let cmd = format!("docker ps -a -q -f name={}", cluster_name);
-    let container_exists = match exec_no_input_report_error(&cmd) {
-        Ok(s) => !s.trim().is_empty(),
-        Err(_) => return,
-    };
+    let out = exec_no_input(&cmd)?;
+    let container_exists = out.trim().is_empty();
 
     if container_exists {
         let cmd = format!("docker inspect -f '{{{{.State.Status}}}}' {}", cluster_name);
-        let container_state = match exec_no_input_report_error(&cmd) {
-            Ok(s) => s.trim_end().replace("'", ""),
-            Err(_) => return,
-        };
-
-        println!(
-            "cluster container exits but is not in runnig state: {}",
-            container_state
-        );
-        return;
+        let out = exec_no_input(&cmd)?;
+        let state = out.trim_end().replace("'", "");
+        return Err(Error::ClusterContaienrNotInRunningStateError { state });
     }
 
     let cmd = format!("docker build -o plain -t {} -", cluster_name);
     let input = obtain_and_save_build_input()?;
-    match exec_report_error(&cmd, &input) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec(&cmd, &input)?;
 
     let cmd = format!("docker volume create {}-docker-dir-volume", cluster_name);
-    match exec_no_input_report_error(&cmd) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec_no_input(&cmd)?;
 
-    let pwd_buf = std::env::current_dir().unwrap();
-    let pwd = pwd_buf.to_str().unwrap();
+    
+    let pwd = std::env::current_dir().unwrap().to_str().unwrap();
     let cmd = &[
         "docker run",
         format!("--name {}", cluster_name).as_str(),
         "--privileged",
         "--detach",
         "--restart unless-stopped",
-        format!("-v {}:/k3scontainer/pwd:ro", pwd).as_str(),
+        format!("-v {}:{}:ro", pwd, consts::container::HOST_WORK_DIR_MOUNT).as_str(),
         format!("-v {}-docker-dir-volume:/var/lib/docker", cluster_name).as_str(),
-        format!(
-            "-v {}/{}:{}",
-            pwd,
-            consts::host::DATA_DIR,
-            consts::container::DATA_DIR
-        )
-        .as_str(),
+        format!("-v {}/{}:{}", pwd, consts::host::DATA_DIR, consts::container::DATA_DIR).as_str(),
         &cluster_name,
     ]
     .join(" ");
-    match exec_no_input_report_error(&cmd) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec_no_input(&cmd)?;
+
+    Ok(())
 }
 
-pub fn remove() {
-    let cluster_name = match obtain_cluster_name() {
-        Ok(Some(name)) => name,
-        Ok(None) => return,
-        Err(e) => {
-            println!("unable to obtaine cluster name due to: {}", e);
-            return;
-        }
-    };
+pub fn remove() -> Result<(), Error> {
+    let cluster_name = obtain_cluster_name()?;
 
     let cmd = format!("docker rm --force {}", cluster_name);
-    match exec_no_input_report_error(&cmd) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec_no_input(&cmd)?;
 
     let cmd = format!("docker volume rm {}-docker-dir-volume", cluster_name);
-    match exec_no_input_report_error(&cmd) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec_no_input(&cmd)?;
 
     let cmd = format!("docker image rm {}", cluster_name);
-    match exec_no_input_report_error(&cmd) {
-        Ok(_) => {}
-        Err(_) => return,
-    };
+    exec_no_input(&cmd)?;
+
+    Ok(())
 }
 
 pub fn logs() {}
