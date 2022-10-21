@@ -1,8 +1,9 @@
 use crate::cli::Command;
 
-use clap::Args;
-#[derive(Args, Clone)]
-pub struct Cmd;
+#[derive(Clone)]
+pub struct Cmd {
+    args: Vec<String>
+}
 
 impl Command for Cmd {
     fn main(&self) {

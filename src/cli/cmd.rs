@@ -1,6 +1,6 @@
 use crate::cli::Command;
 
-use clap::Subcommand;
+use clap::Parser;
 
 pub mod container;
 pub mod copy;
@@ -13,7 +13,7 @@ pub mod remove;
 pub mod run;
 pub mod shell;
 
-#[derive(Subcommand)]
+#[derive(Parser)]
 pub enum Cmd {
     #[command(hide(true))]
     Container {
@@ -22,46 +22,49 @@ pub enum Cmd {
     },
 
     #[command(alias("pv"))]
-    Provision(provision::Cmd),
+    Provision,
 
     #[command(alias("rm"))]
-    Remove(remove::Cmd),
+    Remove,
 
     #[command(alias("l"))]
-    Logs(logs::Cmd),
+    Logs,
 
     #[command(aliases(["exec", "ex"]))]
-    Execute(execute::Cmd),
+    Execute {
+        #[arg(short, long, trailing_var_arg=true)]
+        cmd: String,
+    },
 
     #[command(alias("cp"))]
-    Copy(copy::Cmd),
+    Copy,
 
     #[command(alias("rf"))]
-    Refresh(refresh::Cmd),
+    Refresh,
 
     #[command(alias("r"))]
-    Run(run::Cmd),
+    Run,
 
     #[command(alias("sh"))]
-    Shell(shell::Cmd),
+    Shell,
 
     #[command(alias("k"))]
-    Kubectl(kubectl::Cmd),
+    Kubectl,
 }
 
 impl Command for Cmd {
     fn main(&self) {
         match &self {
             Cmd::Container { cmd } => cmd.main(),
-            Cmd::Provision(cmd) => cmd.main(),
-            Cmd::Remove(cmd) => cmd.main(),
-            Cmd::Logs(cmd) => cmd.main(),
-            Cmd::Execute(cmd) => cmd.main(),
-            Cmd::Copy(cmd) => cmd.main(),
-            Cmd::Refresh(cmd) => cmd.main(),
-            Cmd::Run(cmd) => cmd.main(),
-            Cmd::Shell(cmd) => cmd.main(),
-            Cmd::Kubectl(cmd) => cmd.main(),
+            Cmd::Provision => provision::Cmd.main(),
+            Cmd::Remove => remove::Cmd.main(),
+            Cmd::Logs => logs::Cmd.main(),
+            Cmd::Execute{ cmd} => cmd.main(),
+            Cmd::Copy => copy::Cmd.main(),
+            Cmd::Refresh => refresh::Cmd.main(),
+            Cmd::Run => run::Cmd.main(),
+            Cmd::Shell => shell::Cmd.main(),
+            Cmd::Kubectl => kubectl::Cmd.main(),
         }
     }
 }
