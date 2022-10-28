@@ -2,7 +2,7 @@ use crate::cli::Command;
 
 #[derive(Clone)]
 pub struct Cmd {
-    args: Vec<String>
+    pub args: Vec<String>
 }
 
 impl Command for Cmd {

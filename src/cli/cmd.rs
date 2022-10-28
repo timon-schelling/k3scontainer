@@ -32,8 +32,8 @@ pub enum Cmd {
 
     #[command(aliases(["exec", "ex"]))]
     Execute {
-        #[arg(short, long, trailing_var_arg=true)]
-        cmd: String,
+        #[arg(trailing_var_arg = true)]
+        args: Vec<String>,
     },
 
     #[command(alias("cp"))]
@@ -59,7 +59,7 @@ impl Command for Cmd {
             Cmd::Provision => provision::Cmd.main(),
             Cmd::Remove => remove::Cmd.main(),
             Cmd::Logs => logs::Cmd.main(),
-            Cmd::Execute{ cmd} => cmd.main(),
+            Cmd::Execute { args } => execute::Cmd { args: args.clone() }.main(),
             Cmd::Copy => copy::Cmd.main(),
             Cmd::Refresh => refresh::Cmd.main(),
             Cmd::Run => run::Cmd.main(),
